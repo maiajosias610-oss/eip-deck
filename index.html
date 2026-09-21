@@ -350,8 +350,39 @@ html,body{
   .proof-detail{transition:none;}
 }
 </style>
+<style id="gate-css">
+#gate{position:fixed;inset:0;z-index:99999;background:#000;display:flex;align-items:center;justify-content:center;padding:24px;font-family:'Inter','Noto Sans SC',system-ui,sans-serif;}
+#viewport{display:none!important;}
+html.gate-open #viewport{display:block!important;}
+html.gate-open #gate{display:none!important;}
+.gate-card{width:100%;max-width:420px;border:1px solid var(--line);border-radius:14px;padding:34px 30px;background:rgba(255,255,255,0.02);text-align:center;}
+.gate-kicker{font-size:12px;letter-spacing:.32em;text-transform:uppercase;color:var(--accent);margin:0 0 14px;}
+.gate-title{font-size:23px;font-weight:700;color:var(--text);margin:0 0 8px;letter-spacing:.02em;}
+.gate-sub{font-size:13px;line-height:1.6;color:var(--gray);margin:0 0 22px;}
+.gate-input{width:100%;box-sizing:border-box;background:#0a0a0a;border:1px solid var(--line);border-radius:10px;padding:13px 14px;color:var(--text);font-size:15px;font-family:inherit;outline:none;transition:border-color .15s ease;}
+.gate-input:focus{border-color:var(--accent);}
+.gate-btn{margin-top:14px;width:100%;background:var(--accent);color:#000;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;transition:transform .12s ease,opacity .12s ease;}
+.gate-btn:hover{transform:translateY(-1px);opacity:.92;}
+.gate-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+.gate-err{margin-top:14px;font-size:13px;color:#ff6b6b;min-height:18px;}
+.gate-hint{margin-top:18px;font-size:11px;color:var(--gray);opacity:.7;letter-spacing:.02em;}
+</style>
+<script>
+(function(){ try{ if(sessionStorage.getItem('eip_gate')==='1'){ document.documentElement.className+=' gate-open'; } }catch(e){} })();
+</script>
 </head>
 <body>
+<div id="gate" role="dialog" aria-label="访问密码">
+  <div class="gate-card">
+    <p class="gate-kicker">Protected</p>
+    <h1 class="gate-title">需要密码</h1>
+    <p class="gate-sub">本演示为受限内容，请输入访问密码后查看。</p>
+    <input id="gate-input" class="gate-input" type="password" placeholder="访问密码" autocomplete="off" />
+    <button id="gate-btn" class="gate-btn" type="button">进入</button>
+    <div id="gate-err" class="gate-err"></div>
+    <p class="gate-hint">连续输错 5 次将临时锁定 5 分钟</p>
+  </div>
+</div>
 <div id="mprog" aria-hidden="true"></div>
 <div id="mpill" aria-hidden="true">01 / 20</div>
 <div id="viewport">
@@ -1264,6 +1295,74 @@ html,body{
 
   goTo(0);
   onMode();
+})();
+</script>
+<script>
+(function(){
+  // 访问密码的 SHA-256 摘要（明文不落在页面源码中）
+  // 修改密码：把下面的十六进制串换成 sha256("你的新密码")
+  var HASH = '2f0a03c93a319641783bb6afaddd8a502b5b11cdbb9685a9f19038de68fb417a';
+  var KEY  = 'eip_gate';
+
+  var gate  = document.getElementById('gate');
+  var input = document.getElementById('gate-input');
+  var btn   = document.getElementById('gate-btn');
+  var err   = document.getElementById('gate-err');
+
+  function read(k){ try{ return sessionStorage.getItem(k); }catch(e){ return null; } }
+  function write(k,v){ try{ sessionStorage.setItem(k,v); }catch(e){} }
+  function del(k){ try{ sessionStorage.removeItem(k); }catch(e){} }
+
+  function unlock(){
+    write(KEY,'1');
+    del(KEY+'-fail'); del(KEY+'-lock');
+    document.documentElement.classList.add('gate-open');
+  }
+
+  function lockUntil(){ return parseInt(read(KEY+'-lock')||'0',10) > Date.now(); }
+
+  function showLock(){
+    var until = parseInt(read(KEY+'-lock')||'0',10);
+    var mins  = Math.ceil((until - Date.now())/60000);
+    err.textContent = '尝试次数过多，请 ' + (mins > 0 ? mins : 1) + ' 分钟后再试';
+    btn.disabled = true;
+    input.disabled = true;
+  }
+
+  function fail(){
+    var n = parseInt(read(KEY+'-fail')||'0',10) + 1;
+    write(KEY+'-fail', n);
+    if(n >= 5){
+      write(KEY+'-lock', Date.now() + 5*60000);
+      showLock();
+    } else {
+      err.textContent = '密码错误，还可尝试 ' + (5 - n) + ' 次';
+      input.value = '';
+    }
+  }
+
+  function attempt(){
+    if(lockUntil()) return;
+    var val = input.value;
+    if(!val){ err.textContent = '请输入密码'; return; }
+    if(!(window.crypto && window.crypto.subtle && window.TextEncoder)){
+      err.textContent = '当前环境不支持密码校验，请通过 https 链接打开';
+      return;
+    }
+    errmsg('');
+    crypto.subtle.digest('SHA-256', new TextEncoder().encode(val)).then(function(buf){
+      var v = new Uint8Array(buf), h = '';
+      for(var i = 0; i < v.length; i++){ h += v[i].toString(16).padStart(2,'0'); }
+      if(h === HASH) unlock(); else fail();
+    });
+  }
+
+  function errmsg(t){ err.textContent = t; }
+
+  if(lockUntil()) showLock();
+  btn.addEventListener('click', attempt);
+  input.addEventListener('keydown', function(e){ if(e.key === 'Enter') attempt(); });
+  if(!input.disabled) input.focus();
 })();
 </script>
 </body>
